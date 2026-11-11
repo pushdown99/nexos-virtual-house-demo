@@ -2,6 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { connectLive, ROOMS, BATHS } from './live.js';
 
 const canvas = document.querySelector('#world');
 const scene = new THREE.Scene();
@@ -100,7 +101,7 @@ addOpenZone({name:'테라스-우',x:11.9,z:8.15,w:5.8,d:1.45,material:M.terrace,
 // 켜짐은 따뜻한 면광원과 아이보리빛 바닥광, 꺼짐은 은은한 청회색 음영으로 구분한다.
 const roomLights=new Map();
 function addRoomLighting(key,x,z,w,d,isOn){
-  const group=new THREE.Group(); group.name=`${key}-lighting`; group.userData.isOn=isOn;
+  const group=new THREE.Group(); group.name=`${key}-lighting`; group.userData.isOn=isOn; group.userData.meta={x,z,w,d};
   const overlayMaterial=new THREE.MeshBasicMaterial({
     color:isOn?0xffd77a:0x34445b,
     transparent:true,
@@ -194,13 +195,10 @@ function flowerBox(x,z,w=1.15,flowerColor=0xf1a5b7){
   }
 }
 
-// 실제 관제 스냅샷의 침대 재실 위치: 2호 1명, 3호 2명, 4호 2명.
-const occupiedBedKeys=new Set(['-3.95,-7.55','-15.25,3','-15.25,5.5','-3.95,3','-3.95,5.5']);
-// 중간집 1·3은 왼쪽 외벽, 중간집 2·4는 오른쪽 외벽에 침대를 밀착 배치한다.
+// 중간집 1·3은 왼쪽 외벽, 중간집 2·4는 오른쪽 외벽에 침대를 밀착 배치한다. 위치키로 보관해 라이브 재실에 따라 이불/인물을 토글한다.
+const bedByKey={};
 for(const p of [[-15.25,-7.55,'left'],[-15.25,-5.05,'left'],[-3.95,-7.55,'right'],[-3.95,-5.05,'right'],[-15.25,3.0,'left'],[-15.25,5.5,'left'],[-3.95,3.0,'right'],[-3.95,5.5,'right']]){
-  const bedGroup=bed(...p);
-  // 사람이 있는 침대만 장식 이불을 숨겨 단순 도형 인물이 또렷하게 보이게 한다.
-  if(occupiedBedKeys.has(`${p[0]},${p[1]}`)){const cover=bedGroup.getObjectByName('blanket');if(cover)cover.visible=false;}
+  bedByKey[`${p[0]},${p[1]}`]=bed(...p);
 }
 cabinet('room1-wardrobe',-11.35,-7.7,.58,1.25,1.25); cabinet('room2-wardrobe',-7.95,-7.7,.58,1.25,1.25);
 cabinet('room3-wardrobe',-11.35,5.55,.58,1.25,1.25); cabinet('room4-wardrobe',-7.95,5.55,.58,1.25,1.25);
@@ -341,15 +339,40 @@ function lyingSenior(name,x,z,headSide='left',outfit=0x8aa8b5){
   scene.add(g); return g;
 }
 
-// 실제 관제 데이터: 방 밖 3명 + 침대 5명. 침대 상태는 수면을 뜻하지 않는다.
+// 둘러보기용 1인칭 아바타(방향키 이동) — 데이터와 무관.
 const avatar=standingPerson('senior-avatar-1',-6.2,-.35,0x596f83,'senior');
-standingPerson('senior-avatar-2',3.1,2.25,0xb98278,'senior',-.45);
-standingPerson('senior-avatar-3',5.45,4.65,0x7b9c82,'senior',2.5);
-lyingSenior('senior-avatar-4',-3.95,-7.55,'right',0xc39b84);
-lyingSenior('senior-avatar-5',-15.25,3.0,'left',0x8fa98c);
-lyingSenior('senior-avatar-6',-15.25,5.5,'left',0x91adba);
-lyingSenior('senior-avatar-7',-3.95,3.0,'right',0x9c91b6);
-lyingSenior('senior-avatar-8',-3.95,5.5,'right',0x8aa8b5);
+
+// 어르신 아바타 = 침대별 UUID(앞 8자리, house-web 시드와 동일). 라이브 재실로 lying(침대)/standing(이동) 토글, 부재/끊김은 숨김.
+const RES_BEDS={
+  '19B3C0EB':{pos:[-15.25,-7.55],side:'left',outfit:0x8fa98c}, '27C6189B':{pos:[-15.25,-5.05],side:'left',outfit:0x91adba},
+  '4177B98A':{pos:[-3.95,-7.55],side:'right',outfit:0xc39b84}, '7EF1AEB8':{pos:[-3.95,-5.05],side:'right',outfit:0x9c91b6},
+  'CB17DEB2':{pos:[-15.25,3.0],side:'left',outfit:0x8aa8b5},  'E3A83703':{pos:[-15.25,5.5],side:'left',outfit:0x8fb0a0},
+  'A8438325':{pos:[-3.95,3.0],side:'right',outfit:0xb98278},  '238AA74A':{pos:[-3.95,5.5],side:'right',outfit:0x7b9c82}
+};
+const resAvatars={};
+for(const [uuid,cfg] of Object.entries(RES_BEDS)){
+  const [x,z]=cfg.pos;
+  const lying=lyingSenior('res-lying-'+uuid,x,z,cfg.side,cfg.outfit); lying.visible=false;
+  const sx=x+(cfg.side==='left'?1.25:-1.25);
+  const standing=standingPerson('res-standing-'+uuid,sx,z,cfg.outfit,'senior'); standing.visible=false;
+  resAvatars[uuid]={lying,standing,bedKey:`${x},${z}`};
+}
+function setResidentAvatar(uuid,st){
+  const a=resAvatars[uuid]; if(!a) return;
+  const lie=(st==='sleep'||st==='bed'); const mv=(st==='move');
+  a.lying.visible=lie; a.standing.visible=mv;
+  const bg=bedByKey[a.bedKey]; if(bg){const cover=bg.getObjectByName('blanket'); if(cover) cover.visible=!lie;}
+}
+// 방 조명 라이브 토글(바닥 면광 + 따뜻한 RectAreaLight 추가/제거).
+function setRoomLight(key,isOn){
+  const g=roomLights.get(key); if(!g) return; const meta=g.userData.meta||{x:0,z:0,w:5,d:5};
+  g.userData.isOn=isOn;
+  const pool=g.getObjectByName(`${key}-light-pool`);
+  if(pool){pool.material.color.setHex(isOn?0xffd77a:0x34445b); pool.material.opacity=isOn?.13:.17; pool.material.blending=isOn?THREE.AdditiveBlending:THREE.NormalBlending; pool.material.needsUpdate=true;}
+  let warm=g.getObjectByName(`${key}-warm-light`);
+  if(isOn && !warm){warm=new THREE.RectAreaLight(0xffd493,5.2,meta.w*.72,meta.d*.72); warm.name=`${key}-warm-light`; warm.position.set(meta.x,2.7,meta.z); warm.rotation.x=-Math.PI/2; g.add(warm);}
+  else if(!isOn && warm){g.remove(warm);}
+}
 const zones={
  room1:{label:'중간집 1',sub:'생활·재실',center:[-13.7,-6.3],camera:[-5,16,7],temp:'—',humidity:'—',people:'0명',activity:'부재',status:'방 밖',light:'off',event:'1호에는 현재 재실자가 없어요',copy:'두 침대 모두 비어 있고 화장실 재실도 없어요.',guide:'실제 관제 스냅샷 기준으로 1호는 비어 있어요.',description:'현재 두 분 모두 침실 밖에 있으며 침대 재실 신호가 없습니다.',features:['조명 꺼짐','침대 재실 0명','화장실 재실 0명','방 밖 인원에 포함'],color:0x1684bf},
  room2:{label:'중간집 2',sub:'생활·재실',center:[-5.55,-6.3],camera:[4,16,7],temp:'20.7',humidity:'17',people:'1명',activity:'침대·깨어 있음',status:'재실 1명',light:'on',event:'한 분이 침대에 계세요',copy:'침대 위치로 감지됐지만 수면 상태는 아니에요.',guide:'2호는 한 분만 침대에 있고 다른 한 분은 방 밖에 있어요.',description:'실제 관제 화면에서 한 분은 침대, 한 분은 부재로 표시됩니다.',features:['조명 켜짐','침대 재실 1명','방 밖 1명','수면 상태 아님'],color:0x1684bf},
@@ -375,4 +398,41 @@ let audioContext;document.querySelector('#sound-toggle').addEventListener('click
 const clock=new THREE.Clock();
 function animate(now){requestAnimationFrame(animate);const delta=Math.min(clock.getDelta(),.05),move=new THREE.Vector3();if(keys.has('arrowup')||keys.has('w'))move.z-=1;if(keys.has('arrowdown')||keys.has('s'))move.z+=1;if(keys.has('arrowleft')||keys.has('a'))move.x-=1;if(keys.has('arrowright')||keys.has('d'))move.x+=1;if(move.lengthSq()){move.normalize().multiplyScalar(delta*3.2);avatar.position.add(move);avatar.position.x=THREE.MathUtils.clamp(avatar.position.x,-15.6,15.6);avatar.position.z=THREE.MathUtils.clamp(avatar.position.z,-8.5,8.5);avatar.rotation.y=Math.atan2(move.x,move.z);avatar.position.y=.3+Math.abs(Math.sin(now*.009))*.06;}sensorGroup.traverse((m)=>{if(m.userData.statusLight)m.material.opacity=.58+Math.sin(now*.004+m.id)*.3;});if(cameraTween){const t=Math.min(1,(now-cameraTween.start)/cameraTween.duration),e=1-Math.pow(1-t,3);camera.position.lerpVectors(cameraTween.from,cameraTween.to,e);controls.target.lerpVectors(cameraTween.targetFrom,cameraTween.targetTo,e);if(t===1)cameraTween=null;}controls.update();renderer.render(scene,camera);}
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+// ── horizon 실데이터 라이브 연결 (house.nexoscare.com과 동일 소스/판정). 방별 재실·조명·온습도·화장실을 실시간 반영. ──
+function applyLive(stateByShort){
+  let bedroomPresent=0, warnCount=0;
+  for(const [roomKey,info] of Object.entries(ROOMS)){
+    const sts=info.beds.map(u=>stateByShort[u]).filter(Boolean);
+    const present=sts.filter(s=>s.present);
+    bedroomPresent+=present.length;
+    warnCount+=sts.filter(s=>s.apnea).length;
+    info.beds.forEach(u=>{const s=stateByShort[u]; setResidentAvatar(u, s?s.st:'away');});
+    const litSrc=present.find(s=>s.light!=null)||sts.find(s=>s.light!=null);
+    const isOn=litSrc?!!litSrc.light:present.length>0;   // env.lux 있으면 그 값, 없으면 재실 시 켜짐 간주
+    setRoomLight(roomKey,isOn);
+    const z=zones[roomKey]; if(z){
+      const tSrc=present.find(s=>s.temp!=null)||sts.find(s=>s.temp!=null);
+      const hSrc=present.find(s=>s.humid!=null)||sts.find(s=>s.humid!=null);
+      z.temp=tSrc&&tSrc.temp!=null?Number(tSrc.temp).toFixed(1):'—';
+      z.humidity=hSrc&&hSrc.humid!=null?String(Math.round(hSrc.humid)):'—';
+      z.people=present.length+'명';
+      z.light=isOn?'on':'off';
+      const allSleep=present.length>0&&present.every(s=>s.st==='sleep');
+      const anyMove=present.some(s=>s.st==='move');
+      z.activity=present.length===0?'부재':(allSleep?'수면':(anyMove?'활동 중':'침대·깨어 있음'));
+      z.status=present.length?('재실 '+present.length+'명'):'방 밖';
+      z.event=present.length===0?`${info.label}에는 현재 재실자가 없어요`:(allSleep?'수면 상태로 감지돼요':(anyMove?'움직임이 감지돼요':'침대에 계세요'));
+      z.copy=present.length===0?'두 침대 모두 비어 있어요.':'실시간 관제 센서 기준이에요.';
+      z.features=[isOn?'조명 켜짐':'조명 꺼짐','침대 재실 '+present.length+'명',allSleep?'수면 상태':'수면 상태 아님','경고 '+sts.filter(s=>s.apnea).length+'건'];
+    }
+  }
+  let bathOcc=0; for(const u of Object.keys(BATHS)){const s=stateByShort[u]; if(s&&s.occ) bathOcc++;}
+  const outside=Math.max(0,8-bedroomPresent-bathOcc);
+  const sMain=document.querySelector('#summary-main'); if(sMain) sMain.textContent=`침실 ${bedroomPresent}명 · 방 밖 ${outside}명`;
+  const sSub=document.querySelector('#summary-sub'); if(sSub) sSub.textContent=`화장실 재실 ${bathOcc}명 · 경고 ${warnCount}건`;
+  const hsText=document.querySelector('#house-state-text'); if(hsText) hsText.textContent='실시간 관제 · 전체 8명';
+  if(zones[currentZone]) selectZone(currentZone,false);
+}
+connectLive(applyLive);
+
 selectZone('room1',false);requestAnimationFrame(animate);setTimeout(()=>ui.loading.classList.add('hidden'),650);

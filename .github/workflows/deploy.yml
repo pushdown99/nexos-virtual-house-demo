@@ -1,0 +1,53 @@
+name: deploy
+
+# house3d-web = house3d.nexoscare.com (가상 중간집 three.js + horizon 라이브).
+# nexoscare-web/house-web 과 동일 파이프라인: build → AR push. VM flovv-core 의 systemd 타이머
+# (flovv-stack-deploy, 3분)가 docker compose pull && up -d 로 반영(compose 이미지 = AR apps/house3d-web:latest).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: asia-northeast1
+  AR: asia-northeast1-docker.pkg.dev/enia-505403/apps
+  WIF_PROVIDER: projects/2513407640/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  DEPLOYER_SA: gh-deployer@enia-505403.iam.gserviceaccount.com
+  IMAGE: house3d-web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Docker 인증(Artifact Registry)
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev -q
+      - name: Docker Hub 로그인 (시크릿 있을 때만)
+        if: ${{ env.DH_USER != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: 빌드 & 푸시 (AR 필수 + Docker Hub 선택)
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          TAGS=(-t "${AR}/${IMAGE}:${SHA}" -t "${AR}/${IMAGE}:latest")
+          if [ -n "${DH_USER:-}" ]; then
+            TAGS+=(-t "docker.io/${DH_USER}/${IMAGE}:${SHA}" -t "docker.io/${DH_USER}/${IMAGE}:latest")
+          fi
+          docker build "${TAGS[@]}" .
+          docker push --all-tags "${AR}/${IMAGE}"
+          if [ -n "${DH_USER:-}" ]; then docker push --all-tags "docker.io/${DH_USER}/${IMAGE}"; fi
+          echo ">> push 완료. VM 타이머(3분)가 pull+up."
