@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4efe2" />
+    <meta name="description" content="NexOS Care 가상 중간집 1차 데모" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%23b99542%22/><text x=%2232%22 y=%2244%22 text-anchor=%22middle%22 font-size=%2237%22 font-family=%22Arial%22 font-weight=%22700%22 fill=%22white%22>N</text></svg>" />
+    <title>NexOS Care · 가상 중간집</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="world" aria-label="가상 중간집 3D 공간"></canvas>
+
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="NexOS Care 홈">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span><strong>NexOS Care</strong><small>가상 중간집</small></span>
+        </a>
+        <div class="house-state"><span class="live-dot"></span>실제 관제 스냅샷 · 전체 8명</div>
+        <button id="sound-toggle" class="icon-button" type="button" aria-pressed="false">🔈 <span>생활 소리</span></button>
+      </header>
+
+      <aside class="place-panel" aria-label="공간 이동">
+        <p class="eyebrow">함께 살피는 올온케어</p>
+        <h1>중간집의 하루를<br />한눈에 확인하세요</h1>
+        <p class="intro">실제 중간집 공간과 생활·건강·안심 정보를 한 화면에서 확인해보세요.</p>
+        <nav id="zone-nav" class="zone-nav"></nav>
+        <div class="guide-card">
+          <span class="guide-avatar">서아</span>
+          <p><strong>제가 안내할게요</strong><br /><span id="guide-text">아래 공간을 누르거나 화살표 키로 걸어보세요.</span></p>
+        </div>
+      </aside>
+
+      <aside class="care-panel" aria-live="polite">
+        <div class="care-heading">
+          <div>
+            <p class="eyebrow">실시간 안심 정보</p>
+            <h2 id="zone-title">공동 거실</h2>
+          </div>
+          <div class="status-stack">
+            <span id="zone-status" class="status-pill">안심</span>
+            <span id="light-status" class="light-pill on">조명 켜짐</span>
+          </div>
+        </div>
+        <div class="mode-summary">
+          <span>실제 관제 현황</span>
+          <strong>침실 5명 · 방 밖 3명</strong>
+          <p>화장실 재실 0명 · 경고 0건</p>
+          <div class="family-actions">
+            <button type="button">전화하기</button><button type="button">안부 보내기</button>
+          </div>
+        </div>
+        <div class="metric-grid">
+          <article><span id="label-temp">실내 온도</span><strong id="metric-temp">22.4<small>°C</small></strong></article>
+          <article><span id="label-humidity">습도</span><strong id="metric-humidity">46<small>%</small></strong></article>
+          <article><span id="label-people">공간 인원</span><strong id="metric-people">0명</strong></article>
+          <article><span id="label-activity">현재 상태</span><strong id="metric-activity">부재</strong></article>
+        </div>
+        <div class="event-card">
+          <span class="event-icon">✓</span>
+          <p><strong id="event-title">평온한 오후예요</strong><br /><span id="event-copy">거실에서 담소를 나누고 계세요.</span></p>
+        </div>
+        <button id="detail-button" class="primary-button" type="button">이 공간 자세히 보기</button>
+      </aside>
+
+      <section id="detail-sheet" class="detail-sheet" aria-hidden="true" aria-label="공간 상세 정보">
+        <button id="detail-close" class="sheet-close" type="button" aria-label="닫기">×</button>
+        <p class="eyebrow">NexOS Care 서비스</p>
+        <h2 id="detail-title">공동 거실</h2>
+        <p id="detail-description"></p>
+        <ul id="detail-features"></ul>
+      </section>
+
+      <div class="hint"><span>드래그</span> 시점 회전 · <span>휠</span> 확대 · <span>방향키</span> 이동</div>
+
+      <div class="mobile-pad" aria-label="이동 조작">
+        <button data-move="up" aria-label="앞으로">▲</button>
+        <button data-move="left" aria-label="왼쪽">◀</button>
+        <button data-move="down" aria-label="뒤로">▼</button>
+        <button data-move="right" aria-label="오른쪽">▶</button>
+      </div>
+
+      <div id="loading" class="loading">
+        <span class="loading-mark">N</span>
+        <strong>가상 중간집을 여는 중</strong>
+        <small>안심하고 잠시만 기다려주세요</small>
+      </div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
